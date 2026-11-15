@@ -48,6 +48,7 @@ import { createEd25519Identity, type Ed25519Identity, signEd25519, verifyEd25519
 class RemotePeerError extends Schema.TaggedError<RemotePeerError>()("RemotePeerError", {
   message: Schema.String,
   reference: Schema.optional(Schema.NullOr(Schema.String)),
+  requestStatus: Schema.optional(Schema.Number),
 }) {}
 /** The reference of a failure. A peer error keeps its own; any other error gets one from its code or name. */
 const failureReference = (error: unknown): string | null =>
@@ -59,7 +60,8 @@ const peerError = (error: unknown) =>
         message: error instanceof Error ? error.message : sourceText("error.remote.operationFailed"),
         reference: failureReference(error),
       });
-const referenced = (message: string, reference: string | null) => new RemotePeerError({ message, reference });
+const referenced = (message: string, reference: string | null, requestStatus?: number) =>
+  new RemotePeerError({ message, reference, ...(requestStatus === undefined ? {} : { requestStatus }) });
 
 /** Signal error codes that have their own sentence. `session_revoked` and `rate_limited` have their own steps. */
 const SIGNAL_ERROR_TEXT = new Map<string, string>([
@@ -129,6 +131,8 @@ export interface RemoteTeamCommandResult {
   commandId: string;
   ok: boolean;
   status?: number;
+  /** Validated HTTP status from a refused RPC request; `ok` remains false. */
+  readonly requestStatus?: number;
   body?: TeamProtocolV2Json;
   error?: string;
   /** The code a user can copy for `error`, such as `webrtc/ice/failed`. */
@@ -613,6 +617,12 @@ export function createRemoteTeamPeer(
       if (!state || !isPeerOnline(state)) return;
       void runPeerEffect(sendEventControl(state, { type: "team-typing", agentId, typing })).catch(() => undefined);
     },
+    /** Ask for current attention before a consumer answers a prompt. The caller gates the host capability. */
+    async refreshRuntimeSnapshot() {
+      const state = peer;
+      if (!state || !isPeerOnline(state)) throw new Error(sourceText("error.remote.hostConnectionOffline"));
+      await runPeerEffect(sendEventControl(state, { type: "runtime-snapshot-request" }));
+    },
     execute: (command: RemoteTeamCommand) => runPeerEffect(executeCommand(command, actions)),
     /** Changes `waitForHost` for the next Signal hello, such as when a status connection becomes the opened host. */
     setWaitForHost(value: boolean) {
@@ -1034,6 +1044,9 @@ export function createRemoteTeamPeer(
           commandId: command.id,
           ok: false,
           error: message,
+          ...(command.type === "request" && error instanceof RemotePeerError && error.requestStatus !== undefined
+            ? { requestStatus: error.requestStatus }
+            : {}),
           ...referenceField,
         };
       }
@@ -1763,7 +1776,13 @@ export function createRemoteTeamPeer(
         pending.profile?.responded(data);
         // The host's code names its operation. Its text stays the message, as before.
         if ("error" in frame)
-          pending.reject(referenced(frame.error.message, referenceFrom("host", frame.error.status, frame.error.code)));
+          pending.reject(
+            referenced(
+              frame.error.message,
+              referenceFrom("host", frame.error.status, frame.error.code),
+              frame.error.status,
+            ),
+          );
         else if (!isDynamicRecord(frame.result) || !isNumber(frame.result.status) || !("body" in frame.result)) {
           pending.reject(new Error("The host returned an invalid response."));
         } else if (isDynamicRecord(frame.result.file) && isString(frame.result.file.transferId)) {

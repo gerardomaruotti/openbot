@@ -72,7 +72,7 @@ import { OPENBOT_BROWSER_NAMESPACE } from "../browser-tools";
 import type { ChannelService } from "../channel-service";
 import type { ProviderSession } from "../database/provider-sessions";
 import type { MailboxStore } from "../mailbox-store";
-import { agentMcpServers, codexDeferredMcpServers, openCodeMcpServers } from "../mcp-provider-shapes";
+import { agentMcpServers, openCodeMcpServers } from "../mcp-provider-shapes";
 import { type MessagingThreads, PLATFORM_NAMES } from "../messaging/messaging-threads";
 import { isMessagingOutboundCall } from "../messaging/messaging-tools";
 import {
@@ -978,16 +978,14 @@ export class OpenBotToolRouter {
   }).bind(this);
 
   /**
-   * The note that sends a model from OpenBot's catalog to its provider's own MCP tools, or null when
-   * the provider declares them. Pi tells this for each thread. Codex defers each MCP server except
-   * Computer Use (#4468), so one saved server that is on is enough.
+   * The note that distinguishes this catalog from provider-owned tools. Codex can offer native
+   * tools and account connectors without an entry in OpenBot's saved MCP servers.
    */
   #deferredMcpNote(client: AgentClient, threadId: string): string | null {
     if (client.deferredMcpTools?.(threadId)) return DEFERRED_MCP_NOTE;
     if (client.provider === "opencode")
       return openCodeMcpServers(this.#mcpServers?.list() ?? []).length > 0 ? OPENCODE_DEFERRED_MCP_NOTE : null;
-    if (client.provider !== "codex") return null;
-    return codexDeferredMcpServers(this.#mcpServers?.list() ?? []).length > 0 ? CODEX_DEFERRED_MCP_NOTE : null;
+    return client.provider === "codex" ? CODEX_DEFERRED_MCP_NOTE : null;
   }
 
   /**

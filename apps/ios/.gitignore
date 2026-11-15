@@ -1,0 +1,9 @@
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+design-qa.md
+Resources/Transport/team-peer.html
+Info.plist
+UITests/Info.plist
+__pycache__/
+NotificationService/Info.plist

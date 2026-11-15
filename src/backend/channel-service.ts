@@ -2677,6 +2677,9 @@ export class ChannelService {
           tasks: task.revision === assignment.taskRevision ? [{ ...task, state: "running" }] : [],
         }),
       );
+      // The notification can arrive before the start response. Binding this exact
+      // delivery proves the turn belongs to an assignment, not a provider job.
+      this.#providerTurns.delete(turnId);
       this.publish(assignment.channelId);
       if (
         task.revision !== assignment.taskRevision ||
@@ -2724,10 +2727,13 @@ export class ChannelService {
     if (event.type === "turn-started") {
       const channelId = this.store.channelForThread(event.threadId);
       if (!channelId) return false;
-      // No delivery was starting, as when Claude or OpenCode starts a turn after a background job
-      // ends. That turn is not the member's next assignment: taking it ran the provider's answer as
-      // that task, and the task's own start then failed.
-      if (event.origin === "unknown") {
+      const assignments = this.store.assignments(channelId);
+      // The start response can bind the assignment before turn/started is handled.
+      // A background job has no such binding and must not take the next assignment.
+      const alreadyAccepted = assignments.some(
+        (item) => item.agentId === event.agentId && item.turnId === event.turnId && activeAssignment(item),
+      );
+      if (event.origin === "unknown" && !alreadyAccepted) {
         this.#providerTurns.add(event.turnId);
         // The member ended its task's turn while a background job ran, and this turn answers that
         // job. Its progress and result belong to that task. Before, the channel showed nothing, and
@@ -2736,9 +2742,7 @@ export class ChannelService {
         if (late) this.#lateTurns.set(event.turnId, late.id);
         return true;
       }
-      const assignment = this.store
-        .assignments(channelId)
-        .find((item) => item.agentId === event.agentId && activeAssignment(item));
+      const assignment = assignments.find((item) => item.agentId === event.agentId && activeAssignment(item));
       const agent = this.hooks.agents().find((item) => item.id === event.agentId);
       const session = agent ? this.store.database.activeProviderSession(event.threadId, agent.provider) : null;
       if (assignment?.deliveryId && session)

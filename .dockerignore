@@ -3,6 +3,8 @@
 **/.env
 **/.env.*
 !**/.env.example
+.openbot
+.openbot-build
 coverage
 dist
 out

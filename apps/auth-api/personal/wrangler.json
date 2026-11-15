@@ -1,0 +1,79 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "openbot-personal-auth",
+  "account_id": "8ec1c186390d4346b8fcd6f9f3417b55",
+  "main": "../src/worker-entry.ts",
+  "compatibility_date": "2026-08-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": false },
+  "upload_source_maps": false,
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "routes": [{ "pattern": "openbot-api.maruotti.org", "custom_domain": true }],
+  "secrets": {
+    "required": [
+      "EMAIL_SMTP_PASSWORD",
+      "SKILLS_ADMIN_TOKEN",
+      "SITE_REPORT_HASH_SECRET",
+      "REMOTE_TICKET_PRIVATE_JWK",
+      "REMOTE_TICKET_PUBLIC_JWKS",
+      "REMOTE_AUTH_WEBHOOK_SECRET",
+      "APNS_PRIVATE_KEY",
+      "APNS_KEY_ID"
+    ]
+  },
+  "vars": {
+    "AUTH_EXPOSE_DEVELOPMENT_CODE": "false",
+    "EMAIL_SMTP_HOST": "SET_SMTP_HOST",
+    "EMAIL_SMTP_PORT": "465",
+    "EMAIL_SMTP_USERNAME": "SET_SMTP_USERNAME",
+    "EMAIL_FROM": "SET_AUTHORIZED_SENDER",
+    "EMAIL_LICENSE_FROM": "",
+    "REMOTE_TICKET_KEY_ID": "openbot-personal-1",
+    "REMOTE_SIGNAL_URL": "wss://openbot-signal.maruotti.org/v1/signal",
+    "REMOTE_SIGNAL_HOMES": "",
+    "REMOTE_SIGNAL_HOME_LOCATIONS": "",
+    "REMOTE_AUTH_WEBHOOK_URL": "https://openbot-signal.maruotti.org/internal/auth-events",
+    "REMOTE_AUTH_WEBHOOK_URLS": "",
+    "SIGNAL_ENTRY_ZONE_ID": "",
+    "HOSTED_SERVERS_ENABLED": "false",
+    "HOSTED_SERVERS_ALLOWED_USER_IDS": "",
+    "SITE_PUBLISH_ENABLED": "false",
+    "SITE_COOKIE_ISOLATION_READY": "false",
+    "LICENSE_TRIAL_END": "",
+    "APNS_TEAM_ID": "X826DMJQDP",
+    "APNS_TOPIC": "com.gerardomaruotti.openbot.native"
+  },
+  "services": [{ "binding": "EMAIL_RELAY", "service": "openbot-personal-email-relay" }],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "openbot-personal-auth",
+      "database_id": "SET_PRIVATE_D1_DATABASE_ID",
+      "migrations_dir": "../migrations"
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "AVATARS", "bucket_name": "openbot-personal-avatars" },
+    { "binding": "SKILLS", "bucket_name": "openbot-personal-skills" },
+    { "binding": "SITES", "bucket_name": "openbot-personal-sites" }
+  ],
+  "ratelimits": [
+    {
+      "name": "MARKETPLACE_INGRESS_RATE_LIMITER",
+      "namespace_id": "2026111301",
+      "simple": { "limit": 300, "period": 60 }
+    },
+    {
+      "name": "MARKETPLACE_MUTATION_RATE_LIMITER",
+      "namespace_id": "2026111302",
+      "simple": { "limit": 30, "period": 60 }
+    },
+    { "name": "MARKETPLACE_UPLOAD_RATE_LIMITER", "namespace_id": "2026111303", "simple": { "limit": 5, "period": 60 } },
+    { "name": "SITE_REPORT_RATE_LIMITER", "namespace_id": "2026111304", "simple": { "limit": 10, "period": 60 } },
+    { "name": "GITHUB_TOKEN_RATE_LIMITER", "namespace_id": "2026111305", "simple": { "limit": 30, "period": 60 } },
+    { "name": "LIVE_ACTIVITY_RATE_LIMITER", "namespace_id": "2026111306", "simple": { "limit": 300, "period": 60 } },
+    { "name": "FEEDBACK_RATE_LIMITER", "namespace_id": "2026111307", "simple": { "limit": 3, "period": 60 } }
+  ]
+}

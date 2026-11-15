@@ -1,0 +1,12 @@
+{
+  "accountId": "8ec1c186390d4346b8fcd6f9f3417b55",
+  "zoneId": "8bdb86e13ce258543afd70a8c2a53928",
+  "databaseId": "SET_PRIVATE_D1_DATABASE_ID",
+  "r2Enabled": false,
+  "signalTurnConfigured": false,
+  "linuxPublicIPv4": "SET_LINUX_PUBLIC_IPV4",
+  "smtpHost": "SET_SMTP_HOST",
+  "smtpUsername": "SET_SMTP_USERNAME",
+  "emailFrom": "SET_AUTHORIZED_SENDER",
+  "acmeEmail": "SET_CERTIFICATE_CONTACT"
+}

@@ -7,6 +7,7 @@ apps/
   auth-api/          Public web and /app browser entry, accounts, memberships, connection tickets, and billing
   discord-app/       Developer Portal settings of the OpenBot Discord app (no code)
   mobile/            Expo React Native client for remote team hosts
+  ios/               Native SwiftUI client; Messages-style preview and shared Team WebRTC transport
   mobile-updates/    Cloudflare Worker that gives the mobile app its over-the-air updates from private R2 storage
   site-router/       Cloudflare Worker that serves published sites from private R2 storage
   slack-app/         Slack CLI projects with the OpenBot Slack app manifests (production, development)
@@ -94,6 +95,11 @@ SolidJS, provider, Cloudflare, and application code; and the account server to d
 - Stripe is the source of truth for paid plans. D1 `billing_subscriptions` is a copy that the Stripe
   webhook keeps current; see [Billing](servers.md#billing).
 - A local team host owns conversations, files, agents, and the local member projection used by Team API.
+- The native SwiftUI client keeps its session, host pins and workspace encryption key in Keychain.
+  An encrypted, device-only archive holds recent host data and locally authored unsent text,
+  scoped to account, host and membership. The host owns delivered conversations. The bundled
+  team client owns WebRTC; `ConversationStore` owns presentation and outbox dispatch. Sign-out,
+  expiry and verified access removal clear the relevant local state. Sample data uses separate preferences.
 - `openbot-approval-automation-v3.json` holds which agents have Full access: the `autoApprove` half of
   each agent's Permissions level (Workspace only, Ask first, Full access). OpenBot reads an older
   `-v2` or `-v1` file when no v3 file exists and leaves it in place for a downgrade; Turbo mode on in

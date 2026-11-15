@@ -242,11 +242,11 @@ export const DEFERRED_MCP_NOTE =
   "The tools of the MCP servers in <mcp_servers> are not in this catalog. Load them with the separate tool named exactly tool_search, then call them directly by their mcp__ names.";
 
 /**
- * Codex defers the tools of the user's MCP servers, except Computer Use (#4468): behind its own
- * `tool_search`, or, for a code-mode-only model, into `ALL_TOOLS` in `exec`.
+ * Codex also offers native tools and account service connectors outside OpenBot's saved MCP set.
+ * A fresh routine must search that provider-owned set, not infer absence from this catalog.
  */
 export const CODEX_DEFERRED_MCP_NOTE =
-  "The tools of your MCP servers are not in this catalog. Find them with the separate tool named exactly tool_search. When you have exec instead, read ALL_TOOLS in an exec cell, where MCP tool names start with mcp__, and call the tool on tools.";
+  "This catalog covers OpenBot and browser tools, not the provider's native command/file tools or connected-service tools. Check the tools listed for this session and the provider's own tool_search when offered. If exec is available, inspect ALL_TOOLS inside an exec cell, match tool names and descriptions, and call the exact returned tool on tools. Native command tools need not start with mcp__. An empty OpenBot search does not prove that file writes or a service are unavailable. Prefer an existing dedicated service tool over browser automation. Obtain required opaque resource IDs from the appropriate list or lookup tool; do not substitute display names. If a read-only call fails input validation, inspect its schema and correct that read once using returned IDs before reporting a blocker. Never repeat an uncertain write or send. Existing tool permissions, approvals, sign-ins, and sandbox restrictions still apply.";
 
 /**
  * OpenCode 2.2.7 puts the tools of the user's MCP servers only in `execute`, and lists only some

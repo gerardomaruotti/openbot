@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "app": "openbot-native",
+  "project": "apps/ios/OpenBotNative.xcodeproj",
+  "bundle_id": "com.gerardomaruotti.openbot.native.simulator",
+  "generator": {
+    "command": ["xcodegen", "generate", "--spec", "apps/ios/project.yml"],
+    "inputs": ["apps/ios/project.yml"],
+    "sources": [
+      "apps/ios/Sources",
+      "apps/ios/Resources",
+      "apps/ios/NotificationShared",
+      "apps/ios/NotificationService",
+      "apps/ios/UITests",
+      "packages/i18n/native",
+      "apps/ios/AppIcon.icon",
+      "apps/ios/Transport"
+    ]
+  },
+  "lanes": {
+    "native-context-ui": {
+      "engine": "command",
+      "platform": "ios",
+      "command": ["python3", "apps/ios/scripts/simulator-e2e.py", "{run}", "{derived}", "context"]
+    },
+    "native-receipt-recovery-ui": {
+      "engine": "command",
+      "platform": "ios",
+      "command": ["python3", "apps/ios/scripts/simulator-e2e.py", "{run}", "{derived}", "receipt-recovery"]
+    },
+    "native-sample-ui": {
+      "engine": "command",
+      "platform": "ios",
+      "command": ["python3", "apps/ios/scripts/simulator-e2e.py", "{run}", "{derived}", "samples"]
+    },
+    "native-persistence-ui": {
+      "engine": "command",
+      "platform": "ios",
+      "command": ["python3", "apps/ios/scripts/simulator-e2e.py", "{run}", "{derived}", "persistence"]
+    },
+    "native-ui": {
+      "engine": "command",
+      "platform": "ios",
+      "command": ["python3", "apps/ios/scripts/simulator-e2e.py", "{run}", "{derived}"]
+    },
+    "native-notifications": {
+      "engine": "command",
+      "command": ["bun", "apps/ios/scripts/notification-delivery-e2e.ts"]
+    },
+    "native-assistant-ui": {
+      "engine": "command",
+      "platform": "ios",
+      "command": ["python3", "apps/ios/scripts/simulator-e2e.py", "{run}", "{derived}", "assistant"]
+    },
+    "native-routines-ui": {
+      "engine": "command",
+      "platform": "ios",
+      "command": ["python3", "apps/ios/scripts/simulator-e2e.py", "{run}", "{derived}", "routines"]
+    },
+    "native-replies-ui": {
+      "engine": "command",
+      "platform": "ios",
+      "command": ["python3", "apps/ios/scripts/simulator-e2e.py", "{run}", "{derived}", "replies"]
+    },
+    "native-agents-ui": {
+      "engine": "command",
+      "platform": "ios",
+      "command": ["python3", "apps/ios/scripts/simulator-e2e.py", "{run}", "{derived}", "agents"]
+    },
+    "native-permission-recovery-ui": {
+      "engine": "command",
+      "platform": "ios",
+      "command": ["python3", "apps/ios/scripts/simulator-e2e.py", "{run}", "{derived}", "permissions"]
+    },
+    "native-quiet-ui": {
+      "engine": "command",
+      "platform": "ios",
+      "command": ["python3", "apps/ios/scripts/simulator-e2e.py", "{run}", "{derived}", "quiet"]
+    }
+  }
+}

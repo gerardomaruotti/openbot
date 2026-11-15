@@ -594,6 +594,14 @@ never sent anywhere. The app replaces it with what the server and the account se
 deletes a server's copy when the account no longer has that server. Sign-out and an expired or
 disconnected session delete all copies and the key. Attachments and files are not in the copy.
 
+The separate SwiftUI development client (`apps/ios`) keeps recent chat text and its text outbox
+in Application Support, excluded from backup. AES-256-GCM encrypts each file with a device-only
+Keychain key and binds it to the account, server and membership. The app shows this copy before
+connecting and sends queued text when it returns to the foreground and reconnects. Unlike the
+Expo client's outbox described below, this client's sign-out or session expiry removes both
+cached history and unsent messages. A verified server list also removes data for servers or
+memberships that the account no longer has. These files do not go to the account service.
+
 The mobile app keeps a support log of up to 5,000 events in the phone's system cache: app version,
 system and device model, app state changes, connection steps with server IDs, error text and error
 codes, the types and counts of network candidates (such as "relay/udp", never an address), the
@@ -2173,3 +2181,35 @@ Registry install records remain on the host, separate from conversations and cre
 An authorized remote administrator can install, update, cancel, or remove a registry runtime on
 the host through the encrypted Team connection. Removal does not delete agent configuration,
 credentials, or conversations. The existing cloud service does not store those files.
+
+The native iOS notification client shares only notification sealing secrets with its service
+extension, in a separate Keychain access group with device-only, after-first-unlock protection.
+Account sessions and workspace encryption keys keep their existing private group. Notification taps
+are verified from the encrypted payload and checked against fresh host membership before navigation.
+Remote notification registration remains off until a private relay for this app's APNs topic is
+configured. The local test alert sends no request to an external notification service.
+
+The native iOS client transfers selected Files and Photos content through the authenticated host
+peer. The encrypted outbox stores attachment IDs and metadata; it does not store file bytes.
+Unsent chat text is saved per conversation in the same account-, host- and membership-bound
+encrypted workspace, excluded from backup. Sending clears that draft when the outbox write succeeds.
+Sign-out and loss of host access remove saved drafts with the rest of the workspace.
+Downloaded previews use protected temporary files excluded from backup. Closing a preview,
+leaving its conversation or ending the account session removes those files; the next launch also
+removes previews left by an interrupted process. Private question answers remain in transient
+input state and are not saved in the workspace cache. Native copy and web-link actions run only
+when the user selects them.
+
+The native iOS client can edit permitted agent and routine settings through its authenticated
+connection. The Mac remains authoritative. Management values stay in memory on the phone; the
+protected workspace stores recent chat, drafts, reactions and member notification preferences.
+Interactive browser frames and password/code input stay in memory and are cleared when the view,
+account or host changes. Browser control and secret responses use the existing authenticated peer.
+Camera capture removes location metadata and creates a bounded draft attachment after acceptance.
+On-device dictation does not store or upload audio. Only an explicit Use Text action adds the
+transcript to the encrypted message draft; sending is a separate action.
+
+Replies store the selected message ID with the encrypted draft and outbox. A bounded set of
+referenced original messages is kept in the same protected workspace so older reply context is
+available after restart. Sending uses the host's existing reply context; it does not create a
+separate remote copy of the conversation.

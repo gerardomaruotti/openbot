@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
+import { createHash, createPrivateKey, X509Certificate } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { type IngressRoute, ROUTE_HOST_STATES } from "@openbot/contracts/signal-protocol/ingress-queue";
-import { Context, Effect, Layer, ManagedRuntime, Schema, Semaphore } from "effect";
+import { Context, Effect, Layer, ManagedRuntime, Result, Schema, Semaphore } from "effect";
 import { createRemoteApiApp, prometheusMetrics } from "./app";
 import { readRemoteApiConfig } from "./config";
 import type { DiscordApi } from "./discord-api";
@@ -406,20 +406,25 @@ const entryRuntime = ManagedRuntime.make(
   }),
 );
 await entryRuntime.runPromise(Effect.void);
+interface TlsMaterial {
+  certificate: Buffer;
+  privateKey: Buffer;
+  hash: string;
+}
+
 const app = createRemoteApiApp(config, signal, signalRuntime, turnRelays, entry, () => discordApi);
-const listen = () =>
+// Keep the exact bytes that started the working listener. Files can be replaced independently
+// during renewal, and a failed replacement must not remove the usable certificate from memory.
+let activeTls = await controlPlane.runPromise(tlsCertificateMaterial());
+let listenerReady = false;
+const listen = (material = activeTls) => {
   app.listen({
     hostname: config.host,
     port: config.port,
-    ...(tlsPaths
-      ? {
-          tls: {
-            cert: Bun.file(tlsPaths.certificate),
-            key: Bun.file(tlsPaths.privateKey),
-          },
-        }
-      : {}),
+    ...(material ? { tls: { cert: material.certificate, key: material.privateKey } } : {}),
   });
+  listenerReady = true;
+};
 listen();
 // Telegram posts to this Signal only after the listener is up, and only to the entry.
 if (entry.isEntry) setTelegramWebhooks();
@@ -428,7 +433,13 @@ const healthServer = Bun.serve({
   port: config.healthPort,
   routes: {
     "/health/live": () => Response.json({ service: "openbot-remote-api", status: "live", commit: config.sourceCommit }),
-    "/health/ready": () => Response.json({ service: "openbot-remote-api", status: "ready" }),
+    "/health/ready": () =>
+      listenerReady
+        ? Response.json({ service: "openbot-remote-api", status: "ready" })
+        : Response.json(
+            { error: { code: "listener_not_ready", message: "The Signal listener is not ready." } },
+            { status: 503 },
+          ),
     "/metrics": (request) => {
       const authorization = request.headers.get("Authorization");
       if (!config.metricsToken || authorization !== `Bearer ${config.metricsToken}`)
@@ -444,13 +455,13 @@ const healthServer = Bun.serve({
 const protocol = tlsPaths ? "https" : "http";
 console.log(`OpenBot Remote API is ready at ${protocol}://${config.host}:${config.port}`);
 
-const readCertificateFile = (path: string) =>
-  Effect.tryPromise({
+function readCertificateFile(path: string) {
+  return Effect.tryPromise({
     try: (signal) => readFile(path, { signal }),
     catch: () => new ControlPlaneError({ message: "The TLS certificate could not be read." }),
   });
+}
 
-let certificateHash = await controlPlane.runPromise(tlsCertificateHash());
 let pendingReload: Promise<void> | null = null;
 let shuttingDown = false;
 const certificateTimer = setInterval(() => void reloadTlsWhenChanged(), 5 * 60_000);
@@ -470,34 +481,79 @@ function reloadTlsWhenChanged(): Promise<void> {
 }
 
 const reloadTlsEffect = Effect.fn("Signal.reloadTls")(function* () {
-  const nextHash = yield* tlsCertificateHash();
-  if (shuttingDown || !nextHash || nextHash === certificateHash) return;
-  yield* Effect.tryPromise({
-    try: () => app.stop(true),
-    catch: () => new ControlPlaneError({ message: "The Signal listener could not be stopped." }),
-  });
+  // Parse both staged files and verify that they match before touching the working listener.
+  // The validated bytes, not paths that can change again, are passed to Bun.
+  const next = yield* tlsCertificateMaterial();
+  if (shuttingDown || !next || (next.hash === activeTls?.hash && listenerReady && app.server)) return;
+  listenerReady = false;
+  if (app.server) {
+    yield* Effect.tryPromise({
+      try: () => app.stop(true),
+      catch: () => new ControlPlaneError({ message: "The Signal listener could not be stopped." }),
+    });
+  }
   if (shuttingDown) return;
-  yield* Effect.try({
-    try: listen,
-    catch: () => new ControlPlaneError({ message: "The Signal listener could not be restarted." }),
-  });
-  certificateHash = nextHash;
+  const started = yield* Effect.result(
+    Effect.try({
+      try: () => listen(next),
+      catch: () => new ControlPlaneError({ message: "The Signal listener could not be restarted." }),
+    }),
+  );
+  if (Result.isFailure(started)) {
+    // A valid pair can still be refused by the listener. Restore the last working bytes;
+    // if that also fails, the independent readiness endpoint stays unavailable.
+    if (!shuttingDown) {
+      yield* Effect.try({
+        try: () => listen(activeTls),
+        catch: () => new ControlPlaneError({ message: "The previous Signal listener could not be restored." }),
+      });
+    }
+    return yield* Effect.fail(started.failure);
+  }
+  activeTls = next;
   console.log("OpenBot Remote API reloaded its TLS certificate.");
 });
 
-function tlsCertificateHash(): Effect.Effect<string | null> {
+function tlsCertificateMaterial(): Effect.Effect<TlsMaterial | null, ControlPlaneError> {
   const certificatePath = config.tlsCertificatePath;
   const keyPath = config.tlsPrivateKeyPath;
   if (!certificatePath || !keyPath) return Effect.succeed(null);
   return Effect.all([readCertificateFile(certificatePath), readCertificateFile(keyPath)], { concurrency: 2 }).pipe(
-    Effect.map(([certificate, key]) => createHash("sha256").update(certificate).update(key).digest("hex")),
-    Effect.catch(() => Effect.succeed(null)),
+    Effect.flatMap(([certificate, privateKey]) =>
+      Effect.try({
+        try: () => {
+          const leaf = new X509Certificate(certificate);
+          if (!leaf.checkPrivateKey(createPrivateKey(privateKey))) {
+            throw new Error("The staged TLS key does not match its certificate.");
+          }
+          const validFrom = Date.parse(leaf.validFrom);
+          const validTo = Date.parse(leaf.validTo);
+          const checkedAt = Date.now();
+          if (
+            !Number.isFinite(validFrom) ||
+            !Number.isFinite(validTo) ||
+            checkedAt < validFrom ||
+            checkedAt >= validTo
+          ) {
+            throw new Error("The staged TLS certificate is outside its validity period.");
+          }
+          return {
+            certificate,
+            privateKey,
+            hash: createHash("sha256").update(certificate).update(privateKey).digest("hex"),
+          };
+        },
+        // Certificate paths, bytes and provider errors must not enter diagnostics.
+        catch: () => new ControlPlaneError({ message: "The TLS certificate and key are not valid." }),
+      }),
+    ),
   );
 }
 
 let pendingShutdown: Promise<void> | null = null;
 const shutdown = () => {
   shuttingDown = true;
+  listenerReady = false;
   pendingShutdown ??= (async () => {
     clearInterval(certificateTimer);
     healthServer.stop(true);

@@ -1,0 +1,16 @@
+{
+  "extends": "../../../../tsconfig.node.json",
+  "compilerOptions": {
+    "types": ["node", "bun", "@cloudflare/workers-types", "vite/client"],
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web",
+    "incremental": false
+  },
+  "include": [
+    "*.ts",
+    "../assistant-features-e2e.ts",
+    "../notification-payload-e2e.ts",
+    "../notification-delivery-e2e.ts",
+    "../../../../src/backend/*.d.ts"
+  ]
+}

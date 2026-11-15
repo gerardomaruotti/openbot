@@ -1,0 +1,155 @@
+name: OpenBotNative
+options:
+  bundleIdPrefix: com.gerardomaruotti.openbot
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+configs:
+  Debug: debug
+  Release: release
+  Simulator: debug
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    TARGETED_DEVICE_FAMILY: "1,2"
+    GENERATE_INFOPLIST_FILE: YES
+    INFOPLIST_KEY_CFBundleDisplayName: OpenBot
+    INFOPLIST_KEY_UILaunchScreen_Generation: YES
+    INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+    INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    SWIFT_EMIT_LOC_STRINGS: NO
+    OPENBOT_NATIVE_APP_ID: com.gerardomaruotti.openbot.native
+    OPENBOT_NATIVE_APNS_ENVIRONMENT: development
+    OPENBOT_NATIVE_PUSH_RELAY_TOPIC: ""
+    OPENBOT_NATIVE_SIMULATOR_BUNDLE_ID: com.gerardomaruotti.openbot.native.simulator
+    OPENBOT_NATIVE_URL_SCHEME: openbot-native
+    OPENBOT_NATIVE_ACCOUNT_URL: https://api.openbot.run
+  configs:
+    Simulator:
+      OPENBOT_NATIVE_APP_ID: $(OPENBOT_NATIVE_SIMULATOR_BUNDLE_ID)
+targets:
+  OpenBotNative:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - path: AppIcon.icon
+        buildPhase: resources
+      - NotificationShared
+      - path: Resources
+        buildPhase: resources
+        excludes: [Transport]
+      - path: Resources/Transport
+        type: folder
+        buildPhase: resources
+      - path: ../../packages/i18n/native/Localizable.xcstrings
+        buildPhase: resources
+      - path: ../../packages/i18n/native/InfoPlist.xcstrings
+        buildPhase: resources
+    info:
+      path: Info.plist
+      properties:
+        OpenBotContainingAppID: $(OPENBOT_NATIVE_APP_ID)
+        OpenBotNotificationKeychainGroup: $(AppIdentifierPrefix)$(OPENBOT_NATIVE_APP_ID).notifications
+        OpenBotPushRelayTopic: $(OPENBOT_NATIVE_PUSH_RELAY_TOPIC)
+        OpenBotURLScheme: $(OPENBOT_NATIVE_URL_SCHEME)
+        OpenBotAccountURL: $(OPENBOT_NATIVE_ACCOUNT_URL)
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleURLTypes:
+          - CFBundleURLName: com.gerardomaruotti.openbot.native
+            CFBundleURLSchemes: [$(OPENBOT_NATIVE_URL_SCHEME)]
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: Connect to OpenBot on your Mac.
+        NSCameraUsageDescription: Take a photo to attach to your message.
+        NSMicrophoneUsageDescription: Use the microphone to dictate a message draft on this device.
+        NSSpeechRecognitionUsageDescription: Turn your voice into a message draft on this device. You review the text before sending.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(OPENBOT_NATIVE_APP_ID)
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_ENTITLEMENTS: Configuration/App.entitlements
+        CODE_SIGN_STYLE: Automatic
+      configs:
+        Simulator:
+          PRODUCT_BUNDLE_IDENTIFIER: $(OPENBOT_NATIVE_SIMULATOR_BUNDLE_ID)
+          INFOPLIST_KEY_CFBundleDisplayName: OpenBot Simulator
+          OPENBOT_NATIVE_URL_SCHEME: openbot-native-simulator
+    dependencies:
+      - target: OpenBotNotificationService
+    preBuildScripts:
+      - name: Bundle host transport
+        script: 'sh "$SRCROOT/scripts/build-transport.sh"'
+        basedOnDependencyAnalysis: false
+  OpenBotNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - NotificationService
+      - NotificationShared
+      - path: ../../packages/i18n/native/Localizable.xcstrings
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(OPENBOT_NATIVE_APP_ID).NotificationService
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_ENTITLEMENTS: Configuration/NotificationService.entitlements
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+    info:
+      path: NotificationService/Info.plist
+      properties:
+        CFBundleDisplayName: OpenBot
+        OpenBotContainingAppID: $(OPENBOT_NATIVE_APP_ID)
+        OpenBotNotificationKeychainGroup: $(AppIdentifierPrefix)$(OPENBOT_NATIVE_APP_ID).notifications
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+  OpenBotNativeUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: OpenBotNative
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gerardomaruotti.openbot.native.simulator.uitests
+        TEST_TARGET_NAME: OpenBotNative
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+    info:
+      path: UITests/Info.plist
+      properties:
+        NativeAppBundleID: $(OPENBOT_NATIVE_SIMULATOR_BUNDLE_ID)
+        NativeFixtureURL: $(OPENBOT_NATIVE_FIXTURE_URL)
+schemes:
+  OpenBotNative:
+    build:
+      targets:
+        OpenBotNative: all
+    run:
+      config: Debug
+  OpenBotNativeSimulator:
+    build:
+      targets:
+        OpenBotNative: all
+        OpenBotNativeUITests: [test]
+    run:
+      config: Simulator
+    test:
+      config: Simulator
+      targets: [OpenBotNativeUITests]
+      parallelizeBuild: false

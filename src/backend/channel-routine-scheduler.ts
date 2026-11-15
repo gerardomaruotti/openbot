@@ -279,7 +279,11 @@ export class ChannelRoutineScheduler implements RoutineDueSource {
 
   /** The earliest channel routine, for the shared timer to compare against the other owners. */
   nextDueAt(): string | null {
-    return this.#routines.nextDueAt(this.#excluded());
+    const scheduled = this.#routines.nextDueAt(this.#excluded());
+    // Committed queued requests already belong to the channel pump. Only a deferred
+    // request with no receipt needs this timer, after its earlier run has ended.
+    const pending = this.#eligiblePendingRuns().length ? new Date().toISOString() : null;
+    return scheduled && pending ? (scheduled < pending ? scheduled : pending) : (scheduled ?? pending);
   }
 
   readonly processDue = Effect.fn("ChannelRoutineScheduler.processDue")(function* (
@@ -289,34 +293,50 @@ export class ChannelRoutineScheduler implements RoutineDueSource {
   ) {
     const changed = new Set<string>();
     yield* Effect.gen({ self: this }, function* () {
+      // A consumed one-time trigger can leave a durable request waiting for an older
+      // run. Channel changes re-arm this timer when that work has ended.
+      const deferred = yield* channelRoutineStep(() => this.#eligiblePendingRuns());
+      for (const pending of deferred) {
+        if (!active()) break;
+        const request = yield* channelRoutineStep(() =>
+          pending.requestMessageId ? pending : this.#routines.attachRequest(pending.id, randomUUID()),
+        );
+        yield* this.#issueEffect(request);
+      }
       const pending = yield* channelRoutineStep(() => this.#routines.due(now, this.#excluded()));
       for (const due of pending) {
         if (!active()) break;
         if (this.#excluded().has(due.routine.channelId)) continue;
-        const scheduledFor = yield* channelRoutineStep(() => {
-          // A one-time trigger completes in the place of an advance, with the same at-most-once order.
-          if (due.schedule.kind === "once") {
-            this.#routines.completeTrigger(due.routine.id, due.triggerId, now);
-            changed.add(due.routine.channelId);
-            return due.nextRunAt;
-          }
-          const occurrence = collapseMissedOccurrences(
-            due.schedule,
-            due.routine.timezone,
-            new Date(due.nextRunAt),
-            now,
-          );
-          // The trigger advances whether or not the fire succeeds, so a channel builds no backlog.
-          this.#routines.advanceTrigger(due.routine.id, due.triggerId, occurrence.nextRunAt.toISOString());
-          changed.add(due.routine.channelId);
-          return occurrence.scheduledFor.toISOString();
+        const run = yield* channelRoutineStep(() => {
+          // An earlier request can yield. A pause, edit or delete must apply before
+          // this occurrence starts; the original due list is only a set of candidates.
+          const current = this.#routines.get(due.routine.channelId, due.routine.id);
+          if (!current?.active || current.trigger.id !== due.triggerId || current.trigger.nextRunAt !== due.nextRunAt)
+            return null;
+          const once = current.trigger.schedule.kind === "once";
+          const occurrence = once
+            ? { scheduledFor: new Date(current.trigger.nextRunAt), nextRunAt: null }
+            : collapseMissedOccurrences(
+                current.trigger.schedule,
+                current.timezone,
+                new Date(current.trigger.nextRunAt),
+                now,
+              );
+          const skip = current.limitPolicy === "skip" && this.#hooks.usageLimited(current.channelId);
+          // A one-time trigger has no later occurrence to replace dropped work.
+          // Keep its run before consuming the trigger. Issuing it below can defer
+          // behind a live run without blocking unrelated due routines.
+          const queued =
+            skip || (!once && this.#hasLiveRun(current.channelId, current.id))
+              ? null
+              : this.#prepareRun(current, current.trigger.id, occurrence.scheduledFor.toISOString());
+          if (once) this.#routines.completeTrigger(current.id, current.trigger.id, now);
+          else if (occurrence.nextRunAt)
+            this.#routines.advanceTrigger(current.id, current.trigger.id, occurrence.nextRunAt.toISOString());
+          changed.add(current.channelId);
+          return queued;
         });
-        // A routine set to skip drops the occurrence while a spent plan would only make it wait.
-        if (due.routine.limitPolicy === "skip" && this.#hooks.usageLimited(due.routine.channelId)) continue;
-        // A run that has not finished already does this routine's work. Another request with the same
-        // text lets the lead route it into that run, which stops the run's subtasks (#6077).
-        if (yield* channelRoutineStep(() => this.#hasLiveRun(due.routine.channelId, due.routine.id))) continue;
-        yield* this.#fireEffect(due.routine, due.triggerId, scheduledFor);
+        if (run) yield* this.#issueEffect(run);
       }
     }).pipe(
       Effect.ensuring(
@@ -403,14 +423,32 @@ export class ChannelRoutineScheduler implements RoutineDueSource {
    * Whether an earlier run of this routine still has open work in the channel. The run row alone is
    * not enough: a row whose tasks are gone would stop the routine for good.
    */
-  #hasLiveRun(channelId: string, routineId: string): boolean {
+  #hasLiveRun(channelId: string, routineId: string, exceptRunId?: string): boolean {
     const requests = new Set(
-      this.#routines.activeRuns(channelId, routineId).flatMap((run) => run.requestMessageId ?? []),
+      this.#routines
+        .activeRuns(channelId, routineId)
+        .filter((run) => run.id !== exceptRunId)
+        .flatMap((run) => run.requestMessageId ?? []),
     );
     if (!requests.size) return false;
     return this.#channels.store
       .tasks(channelId)
       .some((task) => requests.has(task.requestMessageId) && task.state !== "completed" && task.state !== "cancelled");
+  }
+
+  /** Pending requests that can make progress, without a timer wake for committed receipts. */
+  #eligiblePendingRuns(): ChannelRoutineRun[] {
+    const excluded = this.#excluded();
+    return this.#routines
+      .pendingRuns()
+      .filter(
+        (run) =>
+          !excluded.has(run.channelId) &&
+          this.#channels.store.exists(run.channelId) &&
+          this.#routines.getRecord(run.channelId, run.routineId) !== null &&
+          !this.#channels.committed(this.#actor(run).id, this.#operationId(run)) &&
+          (run.kind !== "scheduled" || !this.#hasLiveRun(run.channelId, run.routineId, run.id)),
+      );
   }
 
   /**
@@ -424,12 +462,18 @@ export class ChannelRoutineScheduler implements RoutineDueSource {
     triggerId: string | null,
     scheduledFor: string,
   ) {
-    const run = yield* channelRoutineStep(() => {
-      const created = this.#routines.createRun(routine, triggerId, triggerId ? "scheduled" : "test", scheduledFor);
-      return created.requestMessageId ? created : this.#routines.attachRequest(created.id, randomUUID());
-    });
+    const run = yield* channelRoutineStep(() => this.#prepareRun(routine, triggerId, scheduledFor));
     return yield* this.#issueEffect(run);
   }, Effect.uninterruptible);
+
+  #prepareRun(
+    routine: Pick<ChannelRoutine, "id" | "channelId" | "name" | "instruction">,
+    triggerId: string | null,
+    scheduledFor: string,
+  ): ChannelRoutineRun {
+    const created = this.#routines.createRun(routine, triggerId, triggerId ? "scheduled" : "test", scheduledFor);
+    return created.requestMessageId ? created : this.#routines.attachRequest(created.id, randomUUID());
+  }
 
   readonly #issueEffect = Effect.fn("ChannelRoutineScheduler.issue")(function* (
     this: ChannelRoutineScheduler,
@@ -452,8 +496,20 @@ export class ChannelRoutineScheduler implements RoutineDueSource {
             origin: { kind: "routine", routineId: run.routineId, routineName: run.routineName, runId: run.id },
           },
           this.#actor(run),
-          // The request waits behind earlier channel commands; a routine deleted meanwhile posts nothing.
-          (queued) => (this.#routines.getRecord(run.channelId, run.routineId) ? queued : null),
+          // The command can wait behind earlier channel work. Check here, under its
+          // serialization, so another live run cannot absorb the identical text and
+          // stop its subtasks (#6077). A deferral leaves this durable run queued.
+          (queued) => {
+            if (!this.#routines.getRecord(run.channelId, run.routineId)) return null;
+            if (
+              run.kind === "scheduled" &&
+              !this.#channels.committed(this.#actor(run).id, this.#operationId(run)) &&
+              this.#hasLiveRun(run.channelId, run.routineId, run.id)
+            )
+              return null;
+            // A receipt replay must re-wake its own live task, not defer behind it.
+            return queued;
+          },
         )
         .pipe(toChannelRoutineFailed),
     );

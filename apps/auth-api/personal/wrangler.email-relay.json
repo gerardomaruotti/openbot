@@ -1,0 +1,12 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "openbot-personal-email-relay",
+  "account_id": "8ec1c186390d4346b8fcd6f9f3417b55",
+  "main": "../src/email-relay-entry.ts",
+  "compatibility_date": "2026-08-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": false },
+  "placement": { "host": "SET_SMTP_HOST:465" }
+}

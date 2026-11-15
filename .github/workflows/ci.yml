@@ -226,13 +226,13 @@ jobs:
         run: bun run test:desktop -- --shard=${{ matrix.shard }}/2
 
   signal-e2e:
-    # Starts the real Signal service with throwaway secrets and checks its secret and
-    # authentication rules over HTTP and WebSocket. It needs no external service.
+    # Starts the real Signal service with throwaway secrets and checks its secret,
+    # authentication and TLS renewal rules over HTTP and WebSocket. It needs no external service.
     name: Signal E2E
     needs: detect
     if: needs.detect.outputs.remote == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -245,12 +245,24 @@ jobs:
       - name: Run the Signal E2E test
         run: bun run test:signal
 
+      - name: Run the Signal TLS renewal E2E test
+        if: ${{ !cancelled() }}
+        timeout-minutes: 7
+        run: bun run test:signal-tls-renewal
+
+      - name: Run the Signal expired certificate E2E test
+        if: ${{ !cancelled() }}
+        timeout-minutes: 7
+        run: bun run test:signal-tls-renewal --scenario expired-certificate
+
       - name: Upload the Signal E2E report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: signal-security-e2e
-          path: .openbot-build/signal-security-e2e/
+          path: |
+            .openbot-build/signal-security-e2e/
+            .openbot-build/signal-tls-renewal-e2e/
           if-no-files-found: ignore
 
   automation-cli-e2e:
@@ -319,7 +331,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.desktop == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -384,6 +396,19 @@ jobs:
       - name: Run the routine overnight window E2E test
         if: ${{ !cancelled() }}
         run: bun run test:routine-overnight-window
+
+      - name: Run the native routine process restart E2E test
+        if: ${{ !cancelled() }}
+        timeout-minutes: 6
+        run: bun run test:routine-restart
+
+      - name: Run the channel routine due and crash recovery E2E test
+        if: ${{ !cancelled() }}
+        run: bun run test:channel-routine-due-revalidation
+
+      - name: Run the channel routine deferred overlap E2E test
+        if: ${{ !cancelled() }}
+        run: bun run test:channel-routine-deferred-overlap
 
       - name: Run the agent open-wait tools E2E test
         if: ${{ !cancelled() }}
@@ -729,6 +754,9 @@ jobs:
             .openbot-build/routine-pause-resume-e2e/
             .openbot-build/routine-timezone-move-e2e/
             .openbot-build/routine-overnight-window-e2e/
+            .openbot-build/routine-restart-e2e/
+            .openbot-build/channel-routine-due-revalidation-e2e/
+            .openbot-build/channel-routine-deferred-overlap-e2e/
             .openbot-build/agent-waits-tools-e2e/
             .openbot-build/agent-hide-restore-e2e/
             .openbot-build/messaging-pause-resume-e2e/
